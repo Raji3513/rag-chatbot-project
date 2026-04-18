@@ -1,342 +1,250 @@
 """
-RAG Chatbot – Full Pipeline (Day 3)
-Streamlit web application with two tabs:
-  Tab 1: Document ingestion (upload, chunk, embed, store in FAISS)
-  Tab 2: Question answering (retrieve context, generate answer with LLM)
+RAG Chatbot — Full Pipeline (Day 3)
+Streamlit UI: Tab 1 = Document Ingestion | Tab 2 = Ask Questions
 """
-
-import os
-import sys
+import os, sys
 import streamlit as st
 
-# Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from utils.loader import load_uploaded_file, load_document
-from utils.splitter import split_documents
-from utils.embeddings import get_embeddings
+from utils.loader      import load_uploaded_file, load_document
+from utils.splitter    import split_documents
+from utils.embeddings  import get_embeddings
 from utils.vector_store import create_vector_store, load_vector_store
-from utils.retriever import retrieve_documents
-from utils.llm import get_llm
-from utils.rag_chain import ask_question
+from utils.llm         import get_llm
+from utils.rag_chain   import ask_question
 
-# ──────────────────────────────────────────────
-# Page Configuration
-# ──────────────────────────────────────────────
-st.set_page_config(
-    page_title="RAG Chatbot",
-    page_icon="🤖",
-    layout="wide"
-)
+# ── Page config ─────────────────────────────────────────────────────────────
+st.set_page_config(page_title="MindX RAG — Intelligent Document AI",
+                   page_icon="🧠", layout="wide")
 
-# ──────────────────────────────────────────────
-# Cached Resource Loaders
-# ──────────────────────────────────────────────
+# ── Load external CSS ────────────────────────────────────────────────────────
+css_path = os.path.join(os.path.dirname(__file__), "style.css")
+with open(css_path) as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+# ── Cached loaders ───────────────────────────────────────────────────────────
 @st.cache_resource
-def load_llm_cached(model_name):
-    """Cache the LLM so it only loads once."""
-    return get_llm(model_name=model_name)
-
+def load_llm_cached(m):       return get_llm(model_name=m)
 @st.cache_resource
-def load_embeddings_cached(model_name):
-    """Cache the embeddings model so it only loads once."""
-    return get_embeddings(model_name=model_name)
+def load_embed_cached(m):     return get_embeddings(model_name=m)
 
-# ──────────────────────────────────────────────
-# Custom Styling
-# ──────────────────────────────────────────────
+# ── Constants ────────────────────────────────────────────────────────────────
+BASE_DIR      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EMB_DIR       = os.path.join(BASE_DIR, "embeddings")
+INDEX_FILE    = os.path.join(EMB_DIR, "index.faiss")
+PKL_FILE      = os.path.join(EMB_DIR, "index.pkl")
+faiss_ready   = os.path.exists(INDEX_FILE) and os.path.exists(PKL_FILE)
+
+# ── Helper: render metric pills ─────────────────────────────────────────────
+def metric_pills(items):
+    cols = st.columns(len(items))
+    for col, (key, val) in zip(cols, items):
+        with col:
+            st.markdown(f'<div class="metric-pill"><span class="val">{val}</span>'
+                        f'<span class="key">{key}</span></div>', unsafe_allow_html=True)
+
+# ── Helper: render context chunks ───────────────────────────────────────────
+def render_context(docs):
+    for i, doc in enumerate(docs):
+        src = doc.metadata.get("source", "N/A")
+        st.markdown(f'<div class="context-pill"><div class="context-badge">Chunk {i+1} · {src}</div>'
+                    f'<br>{doc.page_content[:400]}{"…" if len(doc.page_content)>400 else ""}'
+                    f'</div>', unsafe_allow_html=True)
+
+# ── Banner ───────────────────────────────────────────────────────────────────
+st.markdown('<div class="banner">🚀 MindX RAG — HuggingFace + FAISS, 100% local, no API keys needed'
+            ' <em>Try It Now ➔</em></div>', unsafe_allow_html=True)
+
+# ── Hero ─────────────────────────────────────────────────────────────────────
 st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #1E88E5;
-        margin-bottom: 0.5rem;
-    }
-    .sub-header {
-        font-size: 1.1rem;
-        color: #666;
-        margin-bottom: 2rem;
-    }
-    .success-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #E8F5E9;
-        border-left: 4px solid #4CAF50;
-        margin: 1rem 0;
-    }
-    .info-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #E3F2FD;
-        border-left: 4px solid #1E88E5;
-        margin: 1rem 0;
-    }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 1rem;
-        color: white;
-        text-align: center;
-    }
-    .answer-box {
-        padding: 1.5rem;
-        border-radius: 0.75rem;
-        background-color: #F3E5F5;
-        border-left: 4px solid #9C27B0;
-        margin: 1rem 0;
-        font-size: 1.05rem;
-        line-height: 1.6;
-    }
-</style>
-""", unsafe_allow_html=True)
+<div class="hero">
+    <div class="hero-badge">⚡ Retrieval-Augmented Generation</div>
+    <h1>Turn Every Document Into<br>an <span class="green">Intelligent Answer</span></h1>
+    <p>Upload any PDF or TXT. We split, embed &amp; store it — then answer your questions
+       with context-grounded responses. No hallucinations. Just facts from your data.</p>
+    <div class="hero-stats">
+        <div class="hero-stat"><span class="num">4-Step</span><span class="lbl">Ingestion Pipeline</span></div>
+        <div class="hero-stat"><span class="num">FAISS</span><span class="lbl">Vector Search</span></div>
+        <div class="hero-stat"><span class="num">Flan-T5</span><span class="lbl">Local LLM</span></div>
+        <div class="hero-stat"><span class="num">0 API</span><span class="lbl">Keys Required</span></div>
+    </div>
+</div>""", unsafe_allow_html=True)
 
-# ──────────────────────────────────────────────
-# Header
-# ──────────────────────────────────────────────
-st.markdown('<div class="main-header">🤖 RAG Chatbot</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Upload documents and ask questions using Retrieval-Augmented Generation</div>', unsafe_allow_html=True)
-
-# ──────────────────────────────────────────────
-# Sidebar — Configuration
-# ──────────────────────────────────────────────
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("⚙️ Configuration")
-
-    st.subheader("📄 Ingestion Settings")
-    chunk_size = st.slider("Chunk Size (characters)", 100, 2000, 500, step=50)
-    chunk_overlap = st.slider("Chunk Overlap (characters)", 0, 200, 50, step=10)
-    embedding_model = st.selectbox(
-        "Embedding Model",
-        ["all-MiniLM-L6-v2", "all-mpnet-base-v2", "paraphrase-MiniLM-L6-v2"],
-        index=0
-    )
-
+    st.markdown("### 🧠 MindX RAG")
+    st.markdown("<small>Intelligent Document Q&A</small>", unsafe_allow_html=True)
     st.divider()
-    st.subheader("🤖 LLM Settings")
-    llm_model = st.selectbox(
-        "LLM Model",
-        ["google/flan-t5-small", "google/flan-t5-base"],
-        index=0
-    )
-    num_results = st.slider("Results to retrieve", 1, 10, 3)
-
+    st.markdown("**⚙️ Ingestion Settings**")
+    chunk_size      = st.slider("Chunk Size (chars)", 100, 2000, 500, 50)
+    chunk_overlap   = st.slider("Chunk Overlap (chars)", 0, 200, 50, 10)
+    embedding_model = st.selectbox("Embedding Model",
+        ["all-MiniLM-L6-v2", "all-mpnet-base-v2", "paraphrase-MiniLM-L6-v2"])
     st.divider()
-    st.header("📊 Pipeline Info")
-    st.markdown("""
-    **RAG Pipeline:**
-    1. 📤 Upload document
-    2. ✂️ Split into chunks
-    3. 🧠 Generate embeddings
-    4. 💾 Store in FAISS
-    5. 🔍 Retrieve context
-    6. 💬 Generate answer
-    """)
-
+    st.markdown("**🤖 LLM Settings**")
+    llm_model   = st.selectbox("LLM Model", ["google/flan-t5-small", "google/flan-t5-base"])
+    num_results = st.slider("Results to retrieve (k)", 1, 10, 3)
     st.divider()
-    st.caption("RAG Chatbot Project – Day 3")
+    st.markdown("**📊 RAG Pipeline**")
+    for icon, title, desc in [("📤","Upload","PDF or TXT"), ("✂️","Split","Into chunks"),
+                                ("🧠","Embed","HuggingFace"), ("💾","Store","FAISS DB"),
+                                ("🔍","Retrieve","Similarity search"), ("💬","Answer","Flan-T5 LLM")]:
+        st.markdown(f'<div class="step-row"><div class="step-num">{icon}</div>'
+                    f'<div class="step-content"><h4>{title}</h4><p>{desc}</p></div></div>',
+                    unsafe_allow_html=True)
+    st.divider()
+    st.caption("MindX RAG Chatbot — Day 3 Build")
 
-# ──────────────────────────────────────────────
-# Constants
-# ──────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-embeddings_dir = os.path.join(BASE_DIR, "embeddings")
-index_file = os.path.join(embeddings_dir, "index.faiss")
-pkl_file = os.path.join(embeddings_dir, "index.pkl")
+# ── Tabs ─────────────────────────────────────────────────────────────────────
+tab1, tab2 = st.tabs(["📄  Document Ingestion", "💬  Ask Questions"])
 
-# ──────────────────────────────────────────────
-# Main Content — Tabs
-# ──────────────────────────────────────────────
-tab1, tab2 = st.tabs(["📄 Document Ingestion", "💬 Ask Questions"])
-
-# ══════════════════════════════════════════════
-# Tab 1: Document Ingestion
-# ══════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 1 — Ingestion
+# ════════════════════════════════════════════════════════════════════════════
 with tab1:
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        st.subheader("📤 Upload Document")
-        uploaded_file = st.file_uploader(
-            "Choose a PDF or TXT file",
-            type=["pdf", "txt"],
-            help="Supported formats: PDF (.pdf) and Text (.txt)"
-        )
-
-    with col2:
-        st.subheader("📁 Or Use Sample")
+    c1, c2 = st.columns([3, 1], gap="large")
+    with c1:
+        st.markdown('<div class="upload-zone"><div class="icon">📂</div>'
+                    '<h3>Drop your document here</h3>'
+                    '<p>PDF or TXT — processed entirely on your machine</p></div>',
+                    unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("File", type=["pdf","txt"],
+                                         label_visibility="collapsed")
+    with c2:
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
         use_sample = st.button("🗂️ Use Sample Document", use_container_width=True)
 
-    # ── Processing Pipeline ──
-    if uploaded_file is not None or use_sample:
-        st.divider()
-        st.subheader("🔄 Processing Pipeline")
-
-        progress_bar = st.progress(0, text="Starting pipeline...")
-        status_container = st.container()
-
+    if uploaded_file or use_sample:
+        st.markdown("---")
+        st.markdown("### 🔄 Running Pipeline")
+        bar = st.progress(0, text="Initialising…")
         try:
-            # Step 1: Load Document
-            with status_container:
-                with st.spinner("📥 Loading document..."):
-                    progress_bar.progress(10, text="Step 1/4: Loading document...")
+            # Step 1 — Load
+            with st.spinner("📥 Loading…"):
+                bar.progress(10, "Step 1/4 — Loading…")
+                if uploaded_file:
+                    docs = load_uploaded_file(uploaded_file)
+                    fname, fsize = uploaded_file.name, uploaded_file.size
+                else:
+                    sp = os.path.join(BASE_DIR, "data", "sample.txt")
+                    docs = load_document(sp)
+                    fname, fsize = "sample.txt", os.path.getsize(sp)
+                st.success(f"✅ Loaded `{fname}` — {len(docs)} section(s)")
+                bar.progress(25, "Step 1/4 — Done ✓")
 
-                    if uploaded_file is not None:
-                        documents = load_uploaded_file(uploaded_file)
-                        file_name = uploaded_file.name
-                        file_size = uploaded_file.size
-                    else:
-                        sample_path = os.path.join(BASE_DIR, "data", "sample.txt")
-                        documents = load_document(sample_path)
-                        file_name = "sample.txt"
-                        file_size = os.path.getsize(sample_path)
+            # Step 2 — Split
+            with st.spinner("✂️ Splitting…"):
+                bar.progress(30, "Step 2/4 — Splitting…")
+                chunks = split_documents(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+                st.success(f"✅ Created `{len(chunks)}` chunks")
+                bar.progress(50, "Step 2/4 — Done ✓")
 
-                    st.success(f"✅ **Step 1 Complete**: Loaded `{file_name}` — {len(documents)} page(s)/section(s)")
-                    progress_bar.progress(25, text="Step 1/4: Document loaded ✓")
+            # Step 3 — Embed
+            with st.spinner(f"🧠 Loading `{embedding_model}`…"):
+                bar.progress(55, "Step 3/4 — Embedding…")
+                embeddings = get_embeddings(model_name=embedding_model)
+                st.success(f"✅ Embedding model ready")
+                bar.progress(75, "Step 3/4 — Done ✓")
 
-            # Step 2: Split into Chunks
-            with status_container:
-                with st.spinner("✂️ Splitting document into chunks..."):
-                    progress_bar.progress(30, text="Step 2/4: Splitting document...")
-                    chunks = split_documents(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-                    st.success(f"✅ **Step 2 Complete**: Created `{len(chunks)}` chunks (size={chunk_size}, overlap={chunk_overlap})")
-                    progress_bar.progress(50, text="Step 2/4: Document split ✓")
+            # Step 4 — FAISS
+            with st.spinner("💾 Building FAISS index…"):
+                bar.progress(80, "Step 4/4 — Storing…")
+                vector_store = create_vector_store(chunks, embeddings)
+                st.success("✅ FAISS index saved to `embeddings/`")
+                bar.progress(100, "Pipeline complete ✓")
 
-            # Step 3: Generate Embeddings
-            with status_container:
-                with st.spinner(f"🧠 Loading embedding model: `{embedding_model}`..."):
-                    progress_bar.progress(55, text="Step 3/4: Generating embeddings...")
-                    embeddings = get_embeddings(model_name=embedding_model)
-                    st.success(f"✅ **Step 3 Complete**: Embedding model `{embedding_model}` loaded")
-                    progress_bar.progress(75, text="Step 3/4: Embeddings ready ✓")
+            # Summary
+            st.markdown("---")
+            st.markdown("### 🎉 Ingestion Complete")
+            metric_pills([("📄 File", fname), ("📦 Sections", len(docs)),
+                          ("✂️ Chunks", len(chunks)), ("🧠 Model", embedding_model.split("-")[0])])
 
-            # Step 4: Store in FAISS
-            with status_container:
-                with st.spinner("💾 Creating and saving FAISS vector store..."):
-                    progress_bar.progress(80, text="Step 4/4: Storing in FAISS...")
-                    vector_store = create_vector_store(chunks, embeddings)
-                    st.success(f"✅ **Step 4 Complete**: FAISS vector store created and saved to `embeddings/`")
-                    progress_bar.progress(100, text="Pipeline complete! ✓")
-
-            # Success Summary
-            st.divider()
-            st.subheader("🎉 Ingestion Complete!")
-
-            metric_cols = st.columns(4)
-            with metric_cols[0]:
-                st.metric("📄 File", file_name)
-            with metric_cols[1]:
-                st.metric("📦 Pages/Sections", len(documents))
-            with metric_cols[2]:
-                st.metric("✂️ Chunks", len(chunks))
-            with metric_cols[3]:
-                st.metric("🧠 Model", embedding_model)
-
-            # Show Chunk Preview
-            st.divider()
-            st.subheader("🔍 Chunk Preview")
-
-            preview_count = min(5, len(chunks))
-            chunk_tabs = st.tabs([f"Chunk {i+1}" for i in range(preview_count)])
-            for i, ctab in enumerate(chunk_tabs):
+            # Chunk preview
+            st.markdown("---")
+            st.markdown("### 🔍 Chunk Preview")
+            for i, ctab in enumerate(st.tabs([f"Chunk {i+1}" for i in range(min(5,len(chunks)))])):
                 with ctab:
-                    st.markdown(f"**Chunk {i+1}** — {len(chunks[i].page_content)} characters")
+                    st.caption(f"{len(chunks[i].page_content)} characters · {chunks[i].metadata}")
                     st.code(chunks[i].page_content, language=None)
-                    if chunks[i].metadata:
-                        st.caption(f"Metadata: {chunks[i].metadata}")
 
-            # Test Similarity Search
-            st.divider()
-            st.subheader("🔎 Test Similarity Search")
-
-            query = st.text_input("Enter a test query to search the vector store:", placeholder="e.g., What is this document about?")
-
-            if query:
-                with st.spinner("Searching..."):
-                    results = vector_store.similarity_search(query, k=3)
-                    st.write(f"**Top {len(results)} results:**")
-                    for idx, result in enumerate(results):
-                        with st.expander(f"Result {idx + 1} (Source: {result.metadata.get('source', 'N/A')})"):
-                            st.write(result.page_content)
+            # Test search
+            st.markdown("---")
+            st.markdown("### 🔎 Test Similarity Search")
+            q = st.text_input("Search query:", placeholder="What is this document about?", key="test_q")
+            if q:
+                results = vector_store.similarity_search(q, k=3)
+                render_context(results)
 
         except Exception as e:
-            st.error(f"❌ Error during processing: {str(e)}")
-            st.exception(e)
+            st.error(f"❌ {e}"); st.exception(e)
 
-    # Footer — FAISS Index Status
-    st.divider()
-    st.subheader("💾 FAISS Index Status")
-
-    if os.path.exists(index_file) and os.path.exists(pkl_file):
-        faiss_size = os.path.getsize(index_file)
-        pkl_size = os.path.getsize(pkl_file)
-        st.success("✅ FAISS index exists at `embeddings/`")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.metric("index.faiss", f"{faiss_size / 1024:.1f} KB")
-        with col_b:
-            st.metric("index.pkl", f"{pkl_size / 1024:.1f} KB")
+    # FAISS status
+    st.markdown("---")
+    if faiss_ready:
+        fs, ps = os.path.getsize(INDEX_FILE), os.path.getsize(PKL_FILE)
+        st.markdown(f'<div class="faiss-ok"><div style="font-size:2rem">✅</div>'
+                    f'<div><h4>Vector index is ready</h4>'
+                    f'<p>index.faiss {fs/1024:.1f} KB &nbsp;|&nbsp; index.pkl {ps/1024:.1f} KB</p>'
+                    f'</div></div>', unsafe_allow_html=True)
     else:
-        st.info("ℹ️ No FAISS index found yet. Upload a document to create one.")
+        st.markdown('<div class="faiss-empty">⚠️ No FAISS index yet — upload a document above.</div>',
+                    unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════
-# Tab 2: Ask Questions (RAG Q&A)
-# ══════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 2 — Q&A
+# ════════════════════════════════════════════════════════════════════════════
 with tab2:
-    st.subheader("💬 Ask Questions About Your Documents")
-    st.markdown("Ask any question and the RAG pipeline will retrieve relevant context and generate an answer using a HuggingFace LLM.")
+    st.markdown('<div class="glass-card"><div style="display:flex;align-items:center;gap:12px">'
+                '<div style="font-size:2rem">💬</div>'
+                '<div><h3 style="margin:0;color:#0f172a">Ask Anything About Your Documents</h3>'
+                '<p style="margin:0;color:#64748b;font-size:.9rem">FAISS retrieves context → Flan-T5 generates a grounded answer.</p>'
+                '</div></div></div>', unsafe_allow_html=True)
 
-    # Check if FAISS index exists
-    if not os.path.exists(index_file) or not os.path.exists(pkl_file):
-        st.warning("⚠️ No documents ingested yet. Please go to the **Document Ingestion** tab and upload a document first.")
+    if not faiss_ready:
+        st.markdown('<div class="faiss-empty">⚠️ No documents ingested yet — go to Document Ingestion first.</div>',
+                    unsafe_allow_html=True)
     else:
-        # Question input
-        question = st.text_input(
-            "Your question:",
-            placeholder="e.g., What is reinforcement learning?",
-            key="rag_question"
-        )
+        if "history" not in st.session_state:
+            st.session_state.history = []
 
-        if st.button("🔍 Get Answer", use_container_width=True, type="primary"):
-            if not question or not question.strip():
-                st.warning("Please enter a question.")
-            else:
-                try:
-                    # Step 1: Load embeddings and vector store
-                    with st.spinner("🔄 Loading embedding model..."):
-                        embeddings = load_embeddings_cached(embedding_model)
-                        vector_store = load_vector_store(embeddings)
+        ic, bc = st.columns([5, 1], gap="small")
+        with ic:
+            question = st.text_input("Question:", placeholder="e.g. What is the main topic?",
+                                     label_visibility="collapsed", key="rag_q")
+        with bc:
+            ask_btn = st.button("🔍 Ask", use_container_width=True)
 
-                    if vector_store is None:
-                        st.error("❌ Failed to load FAISS index. Please re-ingest your documents.")
-                    else:
-                        # Step 2: Load LLM
-                        with st.spinner(f"🤖 Loading LLM: `{llm_model}` (first time may take a moment)..."):
-                            llm = load_llm_cached(llm_model)
+        if ask_btn and question.strip():
+            try:
+                with st.spinner("Loading models & searching…"):
+                    emb  = load_embed_cached(embedding_model)
+                    vs   = load_vector_store(emb)
+                    llm  = load_llm_cached(llm_model)
+                    res  = ask_question(vs, llm, question, k=num_results)
+                st.session_state.history.append(
+                    {"q": question, "a": res["answer"], "docs": res["documents"]})
+            except Exception as e:
+                st.error(f"❌ {e}"); st.exception(e)
+        elif ask_btn:
+            st.warning("Please type a question first.")
 
-                        # Step 3: Run RAG pipeline
-                        with st.spinner("🔍 Retrieving context and generating answer..."):
-                            result = ask_question(vector_store, llm, question, k=num_results)
+        # Chat history
+        if st.session_state.history:
+            st.markdown("---")
+            for entry in reversed(st.session_state.history):
+                st.markdown(f'<div class="chat-question"><div class="bubble">🧑 &nbsp;{entry["q"]}</div></div>',
+                            unsafe_allow_html=True)
+                st.markdown(f'<div class="chat-answer"><div class="chat-avatar">🧠</div>'
+                            f'<div class="bubble">{entry["a"]}</div></div>', unsafe_allow_html=True)
+                if entry["docs"]:
+                    with st.expander(f"📚 {len(entry['docs'])} source chunk(s)"):
+                        render_context(entry["docs"])
+                st.markdown("<hr style='border:none;border-top:1px solid #f1f5f9;margin:.6rem 0'>",
+                            unsafe_allow_html=True)
 
-                        # Display answer
-                        st.divider()
-                        st.subheader("📝 Answer")
-                        st.markdown(
-                            '<div class="answer-box">{}</div>'.format(result["answer"]),
-                            unsafe_allow_html=True
-                        )
+            if st.button("🗑️ Clear Conversation"):
+                st.session_state.history = []; st.rerun()
 
-                        # Display retrieved context
-                        st.divider()
-                        st.subheader("📚 Retrieved Context ({} chunks)".format(len(result["documents"])))
-                        for i, doc in enumerate(result["documents"]):
-                            with st.expander("Chunk {} (Source: {})".format(i + 1, doc.metadata.get("source", "N/A"))):
-                                st.write(doc.page_content)
-
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-                    st.exception(e)
-
-        # Show current config
-        st.divider()
-        st.caption(f"LLM: `{llm_model}` | Embedding: `{embedding_model}` | Top-{num_results} retrieval")
+        st.markdown(f"<small style='color:#94a3b8'>LLM: <code>{llm_model}</code> &nbsp;|&nbsp; "
+                    f"Embedding: <code>{embedding_model}</code> &nbsp;|&nbsp; Top-<code>{num_results}</code></small>",
+                    unsafe_allow_html=True)
