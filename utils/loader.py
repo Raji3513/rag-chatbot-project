@@ -9,33 +9,33 @@ import tempfile
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 
 
-def load_document(file_path: str):
+def load_document(file_path):
     """
     Load a document from a file path.
     Supports .pdf and .txt formats.
-    
+
     Args:
         file_path (str): Absolute path to the document file.
-    
+
     Returns:
         list: A list of LangChain Document objects.
-    
+
     Raises:
         FileNotFoundError: If the file does not exist.
         ValueError: If the file format is unsupported.
     """
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
+        raise FileNotFoundError("File not found: {}".format(file_path))
 
     if file_path.endswith(".pdf"):
         loader = PyPDFLoader(file_path)
     elif file_path.endswith(".txt"):
         loader = TextLoader(file_path, encoding="utf-8")
     else:
-        raise ValueError(f"Unsupported file format: {os.path.splitext(file_path)[1]}")
+        raise ValueError("Unsupported file format: {}".format(os.path.splitext(file_path)[1]))
 
     documents = loader.load()
-    print(f"  → Loaded {len(documents)} page(s)/section(s) from '{os.path.basename(file_path)}'")
+    print("  -> Loaded {} page(s)/section(s) from '{}'".format(len(documents), os.path.basename(file_path)))
     return documents
 
 
@@ -55,7 +55,7 @@ def load_uploaded_file(uploaded_file):
     suffix = os.path.splitext(file_name)[1].lower()
 
     if suffix not in [".pdf", ".txt"]:
-        raise ValueError(f"Unsupported file format: {suffix}. Please upload a .pdf or .txt file.")
+        raise ValueError("Unsupported file format: {}. Please upload a .pdf or .txt file.".format(suffix))
 
     # Write uploaded bytes to a temporary file
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:

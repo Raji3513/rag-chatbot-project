@@ -1,5 +1,5 @@
 """
-RAG Chatbot – Day 2: Main Pipeline Script
+RAG Chatbot - Day 2: Main Pipeline Script
 Processes documents from the data/ folder through the full RAG ingestion pipeline:
   1. Load document (PDF/TXT)
   2. Split into chunks
@@ -32,46 +32,48 @@ def main(file_path=None):
             file_path = os.path.join(BASE_DIR, "data", "sample.txt")
 
     print("=" * 60)
-    print("  RAG Chatbot – Document Ingestion Pipeline")
+    print("  RAG Chatbot - Document Ingestion Pipeline")
     print("=" * 60)
-    print(f"\n📄 File: {file_path}\n")
+    print("\n  File: {}\n".format(file_path))
 
     # Step 1: Load
-    print("─" * 40)
+    print("-" * 40)
     print("Step 1: Loading document...")
     documents = load_document(file_path)
-    print(f"  ✓ Loaded {len(documents)} page(s)/section(s)\n")
+    print("  [OK] Loaded {} page(s)/section(s)\n".format(len(documents)))
 
     # Step 2: Split
-    print("─" * 40)
+    print("-" * 40)
     print("Step 2: Splitting document into chunks...")
     chunks = split_documents(documents)
-    print(f"  ✓ Created {len(chunks)} chunk(s)\n")
+    print("  [OK] Created {} chunk(s)\n".format(len(chunks)))
 
     # Preview first 3 chunks
     for i, chunk in enumerate(chunks[:3]):
-        print(f"  [Chunk {i+1}] ({len(chunk.page_content)} chars): {chunk.page_content[:100]}...")
+        preview = chunk.page_content[:100].replace("\n", " ")
+        print("  [Chunk {}] ({} chars): {}...".format(i + 1, len(chunk.page_content), preview))
 
     # Step 3: Embeddings
-    print("\n" + "─" * 40)
+    print("\n" + "-" * 40)
     print("Step 3: Generating embeddings...")
     embeddings = get_embeddings()
-    print("  ✓ Embedding model loaded\n")
+    print("  [OK] Embedding model loaded\n")
 
     # Step 4: Vector Store
-    print("─" * 40)
+    print("-" * 40)
     print("Step 4: Creating and saving FAISS vector store...")
     vector_store = create_vector_store(chunks, embeddings)
-    print("  ✓ FAISS index created and persisted\n")
+    print("  [OK] FAISS index created and persisted\n")
 
-    # Verification — test similarity search
-    print("─" * 40)
-    print("Step 5: Verification — Testing similarity search...")
+    # Verification - test similarity search
+    print("-" * 40)
+    print("Step 5: Verification - Testing similarity search...")
     test_query = "What is this document about?"
     results = vector_store.similarity_search(test_query, k=2)
-    print(f"  Query: \"{test_query}\"")
+    print('  Query: "{}"'.format(test_query))
     for i, res in enumerate(results):
-        print(f"  [Result {i+1}]: {res.page_content[:120]}...")
+        preview = res.page_content[:120].replace("\n", " ")
+        print("  [Result {}]: {}...".format(i + 1, preview))
 
     # Final summary
     embeddings_dir = os.path.join(BASE_DIR, "embeddings")
@@ -79,18 +81,20 @@ def main(file_path=None):
     pkl_file = os.path.join(embeddings_dir, "index.pkl")
 
     print("\n" + "=" * 60)
-    print("  ✅ PIPELINE COMPLETE — Summary")
+    print("  PIPELINE COMPLETE - Summary")
     print("=" * 60)
-    print(f"  📄 Document:        {os.path.basename(file_path)}")
-    print(f"  📦 Pages/Sections:  {len(documents)}")
-    print(f"  ✂️  Chunks:          {len(chunks)}")
-    print(f"  🧠 Embedding Model: all-MiniLM-L6-v2")
-    print(f"  💾 FAISS Index:     {embeddings_dir}")
+    print("  Document:        {}".format(os.path.basename(file_path)))
+    print("  Pages/Sections:  {}".format(len(documents)))
+    print("  Chunks:          {}".format(len(chunks)))
+    print("  Embedding Model: all-MiniLM-L6-v2")
+    print("  FAISS Index:     {}".format(embeddings_dir))
     if os.path.exists(index_file):
-        print(f"     - index.faiss:  {os.path.getsize(index_file) / 1024:.1f} KB")
+        print("     - index.faiss:  {:.1f} KB".format(os.path.getsize(index_file) / 1024))
     if os.path.exists(pkl_file):
-        print(f"     - index.pkl:    {os.path.getsize(pkl_file) / 1024:.1f} KB")
+        print("     - index.pkl:    {:.1f} KB".format(os.path.getsize(pkl_file) / 1024))
     print("=" * 60)
+    print("\n  SUCCESS! Document processed and stored in FAISS.")
+    print("  You can now query this data using similarity search.\n")
 
 
 if __name__ == "__main__":

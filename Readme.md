@@ -124,3 +124,73 @@ Similarity Search ──→ Relevant Results
 ```
 
 ---
+
+## Day 3 – Retrieval & Answer Generation (RAG Pipeline)
+
+### Completed Tasks
+- ✅ Retrieval logic (query → embedding → FAISS similarity search)
+- ✅ LLM integration using HuggingFace (`google/flan-t5-small`, runs locally)
+- ✅ Answer generation using retrieved context (full RAG pipeline)
+- ✅ Basic error handling throughout the pipeline
+- ✅ Streamlit UI updated with Q&A tab
+- ✅ End-to-end RAG: query → retrieve → generate answer
+
+### Features Implemented
+
+#### 5. Document Retrieval (`utils/retriever.py`)
+- Searches FAISS vector store using similarity search
+- Returns top-k most relevant document chunks
+- Input validation and error handling
+
+#### 6. LLM Integration (`utils/llm.py`)
+- Uses HuggingFace `google/flan-t5-small` (free, runs locally, no API key)
+- Also supports `google/flan-t5-base` for better quality
+- Wrapped as LangChain-compatible LLM via `HuggingFacePipeline`
+
+#### 7. RAG Chain (`utils/rag_chain.py`)
+- Combines retrieval + LLM into a single `ask_question()` function
+- Prompt template instructs LLM to answer based on retrieved context
+- Returns answer, sources, and retrieved documents
+- Error handling for empty queries, missing index, and LLM failures
+
+#### 8. Updated Streamlit UI (`app/app.py`)
+- **Tab 1: Document Ingestion** — Upload and process documents (existing)
+- **Tab 2: Ask Questions** — Enter a question, get RAG-generated answers
+- Cached LLM and embedding model loading for fast responses
+- Configurable LLM model and retrieval count in sidebar
+
+### How to Run
+
+#### Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+#### Run the Streamlit App
+```bash
+streamlit run app/app.py
+```
+1. Go to **Document Ingestion** tab → upload a document or use sample
+2. Go to **Ask Questions** tab → type a question → click "Get Answer"
+
+### Full RAG Pipeline Flow
+```
+User Question
+    │
+    ▼
+Embedding Model (embeddings.py) ──→ Query Vector
+    │
+    ▼
+FAISS Similarity Search (retriever.py) ──→ Top-K Relevant Chunks
+    │
+    ▼
+Prompt Builder (rag_chain.py) ──→ Context + Question
+    │
+    ▼
+HuggingFace LLM (llm.py) ──→ Generated Answer
+    │
+    ▼
+Display Answer + Sources (app.py)
+```
+
+---

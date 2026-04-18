@@ -10,12 +10,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 def split_documents(documents, chunk_size=500, chunk_overlap=50):
     """
     Split documents into smaller chunks.
-    
+
     Args:
         documents (list): List of LangChain Document objects.
         chunk_size (int): Maximum number of characters per chunk.
         chunk_overlap (int): Number of overlapping characters between chunks.
-    
+
     Returns:
         list: A list of chunked Document objects.
     """
@@ -26,5 +26,5 @@ def split_documents(documents, chunk_size=500, chunk_overlap=50):
         separators=["\n\n", "\n", ". ", " ", ""]
     )
     chunks = splitter.split_documents(documents)
-    print(f"  → Split into {len(chunks)} chunk(s) (chunk_size={chunk_size}, overlap={chunk_overlap})")
+    print("  -> Split into {} chunk(s) (chunk_size={}, overlap={})".format(len(chunks), chunk_size, chunk_overlap))
     return chunks
